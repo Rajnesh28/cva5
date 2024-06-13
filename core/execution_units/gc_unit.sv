@@ -120,7 +120,7 @@ module gc_unit
     //fetch flush, take exception. If execute or later exception occurs first, exception is overridden
     common_instruction_t instruction;//rs1_addr, rs2_addr, fn3, fn7, rd_addr, upper/lower opcode
 
-    typedef enum {RST_STATE, PRE_CLEAR_STATE, INIT_CLEAR_STATE, IDLE_STATE, TLB_CLEAR_STATE, POST_ISSUE_DRAIN, PRE_ISSUE_FLUSH, POST_ISSUE_DISCARD} gc_state;
+    typedef enum {RST_STATE, PRE_CLEAR_STATE, INIT_CLEAR_STATE, IDLE_STATE, TLB_CLEAR_STATE, POST_ISSUE_DRAIN, PRE_ISSUE_FLUSH, POST_ISSUE_DISCARD,PRE_PENDING_INTERRUPT,POST_PENDING_INTERRUPT} gc_state;
     gc_state state;
     gc_state next_state;
 
@@ -217,8 +217,8 @@ module gc_unit
     assign gc.fetch_flush = branch_flush | gc_pc_override;
 
     always_ff @ (posedge clk) begin
-        gc_fetch_hold <= next_state inside {PRE_CLEAR_STATE, INIT_CLEAR_STATE, POST_ISSUE_DRAIN, PRE_ISSUE_FLUSH};
-        gc_issue_hold <= processing_csr | (next_state inside {PRE_CLEAR_STATE, INIT_CLEAR_STATE, TLB_CLEAR_STATE, POST_ISSUE_DRAIN, PRE_ISSUE_FLUSH, POST_ISSUE_DISCARD});
+        gc_fetch_hold <= next_state inside {PRE_CLEAR_STATE, INIT_CLEAR_STATE, POST_ISSUE_DRAIN, PRE_ISSUE_FLUSH,POST_PENDING_INTERRUPT};
+        gc_issue_hold <= processing_csr | (next_state inside {PRE_CLEAR_STATE, INIT_CLEAR_STATE, TLB_CLEAR_STATE, POST_ISSUE_DRAIN, PRE_ISSUE_FLUSH, POST_ISSUE_DISCARD, PRE_PENDING_INTERRUPT, POST_PENDING_INTERRUPT});
         gc_writeback_supress <= next_state inside {PRE_CLEAR_STATE, INIT_CLEAR_STATE, POST_ISSUE_DISCARD};
         gc_retire_hold <= next_state inside {PRE_ISSUE_FLUSH};
         gc_init_clear <= next_state inside {INIT_CLEAR_STATE};
@@ -242,6 +242,20 @@ module gc_unit
             state <= next_state;
     end
 
+    reg[3:0] waiting_cycles = 4'd2,pending_interrupt_counter = 4'd0;
+
+    always @(posedge clk)begin
+        if (rst)
+            pending_interrupt_counter <= 0;
+        else if(next_state==PRE_PENDING_INTERRUPT)
+            pending_interrupt_counter <= pending_interrupt_counter+1;
+        else 
+            pending_interrupt_counter <= 0;
+    end
+    wire gc_exception_pending,new_request_wire;
+    assign gc_exception_pending = gc.exception_pending;
+    assign new_request_wire = issue.new_request;
+
     always_comb begin
         next_state = state;
         case (state)
@@ -251,11 +265,15 @@ module gc_unit
             IDLE_STATE : begin
                 if (gc.exception.valid)//new pending exception is also oldest instruction
                     next_state = PRE_ISSUE_FLUSH;
-                else if (issue.new_request | interrupt_pending | gc.exception_pending)
+                else if (issue.new_request | gc.exception_pending)
                     next_state = POST_ISSUE_DRAIN;
+                else if (interrupt_pending)
+                    next_state = PRE_PENDING_INTERRUPT;
             end
             TLB_CLEAR_STATE : if (tlb_clear_done) next_state = IDLE_STATE;
             POST_ISSUE_DRAIN : if (((ifence_in_progress | ret_in_progress) & post_issue_idle) | gc.exception.valid | interrupt_pending) next_state = PRE_ISSUE_FLUSH;
+            PRE_PENDING_INTERRUPT : if(interrupt_pending & ~(ifence_in_progress | ret_in_progress) & pending_interrupt_counter==waiting_cycles) next_state =  POST_PENDING_INTERRUPT;
+            POST_PENDING_INTERRUPT : if(post_issue_idle) next_state = PRE_ISSUE_FLUSH;
             PRE_ISSUE_FLUSH : next_state = POST_ISSUE_DISCARD;
             POST_ISSUE_DISCARD : if ((post_issue_count == 0) & load_store_status.no_released_stores_pending) next_state = IDLE_STATE;
             default : next_state = RST_STATE;
@@ -305,7 +323,8 @@ module gc_unit
 
     assign exception_ack = gc.exception.valid;
 
-    assign interrupt_taken = interrupt_pending & (next_state == PRE_ISSUE_FLUSH) & ~(ifence_in_progress | ret_in_progress | gc.exception.valid);
+    // assign interrupt_taken = interrupt_pending & (next_state == PRE_ISSUE_FLUSH) & ~(ifence_in_progress | ret_in_progress | gc.exception.valid);
+    assign interrupt_taken = interrupt_pending & (state==POST_PENDING_INTERRUPT) & (next_state == PRE_ISSUE_FLUSH) & ~(ifence_in_progress | ret_in_progress | gc.exception.valid);
 
     assign mret = gc_inputs_r.is_mret & ret_in_progress & (next_state == PRE_ISSUE_FLUSH);
     assign sret = gc_inputs_r.is_sret & ret_in_progress & (next_state == PRE_ISSUE_FLUSH);
