@@ -120,6 +120,7 @@ module gc_unit
     //fetch flush, take exception. If execute or later exception occurs first, exception is overridden
     common_instruction_t instruction;//rs1_addr, rs2_addr, fn3, fn7, rd_addr, upper/lower opcode
 
+    // typedef enum {RST_STATE, PRE_CLEAR_STATE, INIT_CLEAR_STATE, IDLE_STATE, TLB_CLEAR_STATE, POST_ISSUE_DRAIN, PRE_ISSUE_FLUSH, POST_ISSUE_DISCARD} gc_state;
     typedef enum {RST_STATE, PRE_CLEAR_STATE, INIT_CLEAR_STATE, IDLE_STATE, TLB_CLEAR_STATE, POST_ISSUE_DRAIN, PRE_ISSUE_FLUSH, POST_ISSUE_DISCARD,PRE_PENDING_INTERRUPT,POST_PENDING_INTERRUPT} gc_state;
     gc_state state;
     gc_state next_state;
@@ -136,6 +137,7 @@ module gc_unit
     logic gc_fetch_hold;
     logic gc_issue_hold;
     logic gc_fetch_flush;
+    logic gc_fetch_ifence;
     logic gc_writeback_supress;
     logic gc_retire_hold;
     logic gc_tlb_flush;
@@ -224,6 +226,7 @@ module gc_unit
         gc_init_clear <= next_state inside {INIT_CLEAR_STATE};
         gc_tlb_flush <= next_state inside {INIT_CLEAR_STATE, TLB_CLEAR_STATE};
         gc_sq_flush <= state inside {POST_ISSUE_DISCARD} & next_state inside {IDLE_STATE};
+        gc_fetch_ifence <= issue.new_request & gc_inputs.is_ifence;
     end
     //work-around for verilator BLKANDNBLK signal optimizations
     assign gc.fetch_hold = gc_fetch_hold;
@@ -233,14 +236,9 @@ module gc_unit
     assign gc.init_clear = gc_init_clear;
     assign gc.tlb_flush = CONFIG.INCLUDE_S_MODE & gc_tlb_flush;
     assign gc.sq_flush = CONFIG.INCLUDE_M_MODE & gc_sq_flush;
+    assign gc.fetch_ifence = CONFIG.INCLUDE_IFENCE & gc_fetch_ifence;
     ////////////////////////////////////////////////////
-    //GC State Machine
-    always @(posedge clk) begin
-        if (rst)
-            state <= RST_STATE;
-        else
-            state <= next_state;
-    end
+
 
     reg[3:0] waiting_cycles = 4'd2,pending_interrupt_counter = 4'd0;
 
@@ -252,9 +250,13 @@ module gc_unit
         else 
             pending_interrupt_counter <= 0;
     end
-    wire gc_exception_pending,new_request_wire;
-    assign gc_exception_pending = gc.exception_pending;
-    assign new_request_wire = issue.new_request;
+    //GC State Machine
+    always @(posedge clk) begin
+        if (rst)
+            state <= RST_STATE;
+        else
+            state <= next_state;
+    end
 
     always_comb begin
         next_state = state;
@@ -271,10 +273,10 @@ module gc_unit
                     next_state = PRE_PENDING_INTERRUPT;
             end
             TLB_CLEAR_STATE : if (tlb_clear_done) next_state = IDLE_STATE;
-            POST_ISSUE_DRAIN : if (((ifence_in_progress | ret_in_progress) & post_issue_idle) | gc.exception.valid | interrupt_pending) next_state = PRE_ISSUE_FLUSH;
+            POST_ISSUE_DRAIN : if (((ifence_in_progress | ret_in_progress) & post_issue_idle) | gc.exception.valid) next_state = PRE_ISSUE_FLUSH;
+            PRE_ISSUE_FLUSH : next_state = POST_ISSUE_DISCARD;
             PRE_PENDING_INTERRUPT : if(interrupt_pending & ~(ifence_in_progress | ret_in_progress) & pending_interrupt_counter==waiting_cycles) next_state =  POST_PENDING_INTERRUPT;
             POST_PENDING_INTERRUPT : if(post_issue_idle) next_state = PRE_ISSUE_FLUSH;
-            PRE_ISSUE_FLUSH : next_state = POST_ISSUE_DISCARD;
             POST_ISSUE_DISCARD : if ((post_issue_count == 0) & load_store_status.no_released_stores_pending) next_state = IDLE_STATE;
             default : next_state = RST_STATE;
         endcase

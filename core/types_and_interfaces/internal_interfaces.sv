@@ -258,6 +258,7 @@ interface cache_functions_interface #(parameter int TAG_W = 8, parameter int LIN
 
 endinterface
 
+
 interface addr_utils_interface #(parameter bit [31:0] BASE_ADDR = 32'h00000000, parameter bit [31:0] UPPER_BOUND = 32'hFFFFFFFF);
         //Based on the lower and upper address ranges,
         //find the number of bits needed to uniquely identify this memory range.
@@ -265,16 +266,15 @@ interface addr_utils_interface #(parameter bit [31:0] BASE_ADDR = 32'h00000000, 
         function int unsigned bit_range ();
             for(int i=0; i < 32; i++) begin
                 if (BASE_ADDR[i] == UPPER_BOUND[i])
-                    return (32 - i);
+                    return (32 - i - 1);
             end
             return 0;
         endfunction
 
         localparam int unsigned BIT_RANGE = bit_range();
-
         /* verilator lint_off SELRANGE */
         function address_range_check (input logic[31:0] addr);
-            return (BIT_RANGE == 0) ? 1 : (addr[31:32-BIT_RANGE] == BASE_ADDR[31:32-BIT_RANGE]);
+            return (BIT_RANGE == 0) ? 1 : (addr[31:31-BIT_RANGE] == BASE_ADDR[31:31-BIT_RANGE]);
         endfunction
 endinterface
 
@@ -405,4 +405,31 @@ interface fp_intermediate_wb_interface;
         output ack,
         input id, done, rd, expo_overflow, fflags, rm, hidden, grs, clz, carry, safe, subnormal, right_shift, right_shift_amt, ignore_max_expo, d2s
     );
+endinterface
+
+interface amo_interface;
+    import riscv_types::*;
+
+    //Atomic Load Reserved and Store Conditional
+    logic set_reservation;
+    logic clear_reservation;
+    logic[31:0] reservation;
+    logic reservation_valid;
+
+    //Atomic Read-Modify-Write
+    logic rmw_valid;
+    amo_t op;
+    logic[31:0] rs1;
+    logic[31:0] rs2;
+    logic[31:0] rd;
+
+    modport subunit (
+        input reservation_valid, rd,
+        output set_reservation, clear_reservation, reservation, rmw_valid, op, rs1, rs2
+    );
+    modport amo_unit (
+        output reservation_valid, rd,
+        input set_reservation, clear_reservation, reservation, rmw_valid, op, rs1, rs2
+    );
+
 endinterface

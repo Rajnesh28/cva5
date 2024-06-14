@@ -82,13 +82,17 @@ module litex_wrapper
     };
 
     localparam cpu_config_t MINIMAL_CONFIG = '{
+        
+        // bit: 0,
+        INCLUDE_CBO: 0,
+        
         //ISA options
         INCLUDE_M_MODE : 1,
-        INCLUDE_S_MODE : 0,
+        INCLUDE_S_MODE : 1,
         INCLUDE_U_MODE : 0,
-	INCLUDE_CBO    : 0,
         INCLUDE_UNIT : '{
-	    FPU : 0,
+            // bit: 0,
+            FPU: 1,
             ALU : 1,
             LS : 1,
             MUL : 0,
@@ -98,8 +102,8 @@ module litex_wrapper
             BR : 1,
             IEC : 1
         },
-        INCLUDE_IFENCE : 0,
-        INCLUDE_AMO : 0,
+        INCLUDE_IFENCE : 1,
+        INCLUDE_AMO : 1,
         //CSR constants
         CSRS : '{
             MACHINE_IMPLEMENTATION_ID : 0,
@@ -117,6 +121,10 @@ module litex_wrapper
             }
         },
         //Memory Options
+         AMO_UNIT: '{
+            LR_WAIT: 8,
+            RESERVATION_WORDS : 4
+        },
         SQ_DEPTH : 2,
         INCLUDE_FORWARDING_TO_STORES : 0,
         INCLUDE_ICACHE : 0,
@@ -200,13 +208,16 @@ module litex_wrapper
     };
 
     localparam cpu_config_t STANDARD_CONFIG = '{
+        
+        // bit: 0,
+        INCLUDE_CBO: 0,
+
         //ISA options
         INCLUDE_M_MODE : 1,
         INCLUDE_S_MODE : 0,
         INCLUDE_U_MODE : 0,
-	INCLUDE_CBO    : 0,
         INCLUDE_UNIT : '{
-	    FPU : 0,
+            FPU: 1,
             ALU : 1,
             LS : 1,
             MUL : 1,
@@ -216,8 +227,8 @@ module litex_wrapper
             BR : 1,
             IEC : 1
         },
-        INCLUDE_IFENCE : 0,
-        INCLUDE_AMO : 0,
+        INCLUDE_IFENCE : 1,
+        INCLUDE_AMO : 1,
         //CSR constants
         CSRS : '{
             MACHINE_IMPLEMENTATION_ID : 0,
@@ -235,6 +246,14 @@ module litex_wrapper
             }
         },
         //Memory Options
+
+        AMO_UNIT: '{
+            LR_WAIT: 8,
+            RESERVATION_WORDS : 4
+        },
+
+
+
         SQ_DEPTH : 4,
         INCLUDE_FORWARDING_TO_STORES : 1,
         INCLUDE_ICACHE : 1,
