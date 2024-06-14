@@ -275,8 +275,8 @@ module gc_unit
             TLB_CLEAR_STATE : if (tlb_clear_done) next_state = IDLE_STATE;
             POST_ISSUE_DRAIN : if (((ifence_in_progress | ret_in_progress) & post_issue_idle) | gc.exception.valid) next_state = PRE_ISSUE_FLUSH;
             PRE_ISSUE_FLUSH : next_state = POST_ISSUE_DISCARD;
-            PRE_PENDING_INTERRUPT : if(interrupt_pending & ~(ifence_in_progress | ret_in_progress) & pending_interrupt_counter==waiting_cycles) next_state =  POST_PENDING_INTERRUPT;
-            POST_PENDING_INTERRUPT : if(post_issue_idle) next_state = PRE_ISSUE_FLUSH;
+            PRE_PENDING_INTERRUPT : if(interrupt_pending & pending_interrupt_counter==waiting_cycles) next_state =  POST_PENDING_INTERRUPT;
+            POST_PENDING_INTERRUPT : if(post_issue_idle | gc.exception.valid) next_state = PRE_ISSUE_FLUSH;
             POST_ISSUE_DISCARD : if ((post_issue_count == 0) & load_store_status.no_released_stores_pending) next_state = IDLE_STATE;
             default : next_state = RST_STATE;
         endcase
@@ -325,8 +325,8 @@ module gc_unit
 
     assign exception_ack = gc.exception.valid;
 
-    // assign interrupt_taken = interrupt_pending & (next_state == PRE_ISSUE_FLUSH) & ~(ifence_in_progress | ret_in_progress | gc.exception.valid);
-    assign interrupt_taken = interrupt_pending & (state==POST_PENDING_INTERRUPT) & (next_state == PRE_ISSUE_FLUSH) & ~(ifence_in_progress | ret_in_progress | gc.exception.valid);
+    assign interrupt_taken = interrupt_pending & (next_state == PRE_ISSUE_FLUSH) & ~(ifence_in_progress | ret_in_progress | gc.exception.valid);
+    // assign interrupt_taken = interrupt_pending & (state==PRE_PENDING_INTERRUPT) & (next_state == POST_ISSUE_DRAIN) & ~(ifence_in_progress | ret_in_progress | gc.exception.valid);
 
     assign mret = gc_inputs_r.is_mret & ret_in_progress & (next_state == PRE_ISSUE_FLUSH);
     assign sret = gc_inputs_r.is_sret & ret_in_progress & (next_state == PRE_ISSUE_FLUSH);
