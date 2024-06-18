@@ -150,6 +150,7 @@ module gc_unit
         logic is_ifence;
         logic is_mret;
         logic is_sret;
+        logic is_wfi;
     } gc_inputs_t;
 
     gc_inputs_t gc_inputs;
@@ -162,13 +163,15 @@ module gc_unit
     logic is_ifence;
     logic is_mret;
     logic is_sret;
+    logic is_wfi;
 
     assign instruction = decode_stage.instruction;
 
     assign unit_needed =
         (CONFIG.INCLUDE_M_MODE & decode_stage.instruction inside {MRET}) |
         (CONFIG.INCLUDE_S_MODE & decode_stage.instruction inside {SRET, SFENCE_VMA}) |
-        (CONFIG.INCLUDE_IFENCE & decode_stage.instruction inside {FENCE_I});
+        (CONFIG.INCLUDE_IFENCE & decode_stage.instruction inside {FENCE_I}) |
+        (decode_stage.instruction inside {WFI});
     always_comb begin
         uses_rs = '0;
         uses_rs[RS1] = CONFIG.INCLUDE_S_MODE & decode_stage.instruction inside {SFENCE_VMA};
@@ -180,6 +183,7 @@ module gc_unit
             is_ifence = (instruction.upper_opcode == FENCE_T) & CONFIG.INCLUDE_IFENCE;
             is_mret = (instruction.upper_opcode == SYSTEM_T) & (decode_stage.instruction[31:20] == MRET_imm) & CONFIG.INCLUDE_M_MODE;
             is_sret = (instruction.upper_opcode == SYSTEM_T) & (decode_stage.instruction[31:20] == SRET_imm) & CONFIG.INCLUDE_S_MODE;
+            is_wfi  = (instruction.upper_opcode == SYSTEM_T) & (decode_stage.instruction[31:20] == WFI_imm);
         end
     end
 
@@ -187,6 +191,7 @@ module gc_unit
     assign gc_inputs.is_ifence = is_ifence;
     assign gc_inputs.is_mret = is_mret;
     assign gc_inputs.is_sret = is_sret;
+    assign gc_inputs.is_wfi = is_wfi;
 
     ////////////////////////////////////////////////////
     //Issue
@@ -267,7 +272,7 @@ module gc_unit
             IDLE_STATE : begin
                 if (gc.exception.valid)//new pending exception is also oldest instruction
                     next_state = PRE_ISSUE_FLUSH;
-                else if (issue.new_request | gc.exception_pending)
+                else if ((issue.new_request & ~gc_inputs.is_wfi) | gc.exception_pending)
                     next_state = POST_ISSUE_DRAIN;
                 else if (interrupt_pending)
                     next_state = PRE_PENDING_INTERRUPT;
